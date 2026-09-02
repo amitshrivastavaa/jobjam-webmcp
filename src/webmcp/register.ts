@@ -84,13 +84,21 @@ function wrap(tool: ToolDescriptor): ToolDescriptor {
 }
 
 /**
- * Registers every tool. Returns a cleanup function, and is safe to call more
- * than once: a second call unregisters first, because registerTool throws
- * InvalidStateError on a duplicate name and one throw would abort the whole
- * batch, leaving the page with a partial tool set.
+ * Registers every tool. Returns a cleanup function, or null when the browser
+ * has no WebMCP support, which is the common case: JobJam must behave
+ * identically there.
  *
- * Returns null when the browser has no WebMCP support, which is the common
- * case. JobJam must behave identically there.
+ * Safe to call more than once, but not for the reason the spec suggests.
+ * Chrome 152 exposes only `registerTool`, `getTools`, `executeTool` and
+ * `ontoolchange`: there is no `unregisterTool`, and re-registering a name
+ * neither throws InvalidStateError nor duplicates the entry, it replaces it.
+ * Verified by calling getTools() after a remount: 13 tools, 13 unique.
+ *
+ * So the cleanup returned here is best-effort. Where `unregisterTool` is
+ * missing it cannot remove anything, and tools live for the lifetime of the
+ * browsing context. That is acceptable because every handler re-reads the
+ * session on each call: a stale registration cannot act with stale authority,
+ * it can only return NOT_SIGNED_IN.
  */
 export function registerJobJamTools(options?: {
   includeWriteTools?: boolean

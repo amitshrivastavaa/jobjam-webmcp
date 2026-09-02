@@ -105,6 +105,28 @@ describe('registerJobJamTools', () => {
     }
   })
 
+  // Chrome 152 normalises annotations to readOnlyHint + untrustedContentHint
+  // and drops destructiveHint, so through getTools() a three-credit
+  // prepare_application looks identical to a free save_job. Verified against a
+  // real browser. The description is therefore the only channel that reliably
+  // reaches the agent, so the cost has to be stated there.
+  it('states the cost in the description of every destructive tool', () => {
+    const ctx = fakeContext()
+    install(ctx)
+    registerJobJamTools()
+
+    const destructive = [...ctx.tools.values()].filter(
+      t => t.annotations?.destructiveHint
+    )
+    expect(destructive.length).toBeGreaterThan(0)
+
+    for (const tool of destructive) {
+      expect(tool.description.toLowerCase(), tool.name).toMatch(
+        /approv|credit/
+      )
+    }
+  })
+
   // A signed-in user with no profile yet must be reachable from zero: without
   // this tool every ranking and evaluation dead-ends at NO_RESUME and the
   // agent can only tell them to go and use the website by hand.

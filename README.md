@@ -168,9 +168,48 @@ parser (job postings state salary as unstructured text, so its edge cases are
 the whole story) and the approval gate, including the case where a second
 consequential request arrives while a dialog is already open.
 
+## Verified against Chrome 152
+
+Driven through `document.modelContext.getTools()` and `executeTool()` with
+`chrome://flags/#enable-webmcp-testing` enabled. Four things worth knowing if
+you are building against WebMCP today, none of which a mocked context reveals:
+
+**The API is smaller than the draft.** Chrome 152 exposes `registerTool`,
+`getTools`, `executeTool` and `ontoolchange`. There is no `unregisterTool` and
+no `provideContext`. Tools live for the lifetime of the browsing context.
+
+**Re-registering a name replaces it.** It does not throw `InvalidStateError`
+and does not duplicate: after a remount, `getTools()` returned 13 tools, 13
+unique. Registration is naturally idempotent, which is just as well given there
+is no way to unregister.
+
+**`destructiveHint` is dropped.** `getTools()` normalises annotations to
+`readOnlyHint` and `untrustedContentHint` only, so a three-credit
+`prepare_application` is indistinguishable from a free `save_job`: both report
+`readOnlyHint: false`. If you are relying on that annotation to convey cost,
+you are relying on something the agent never sees. State it in the description,
+and gate it in the page.
+
+**`executeTool` takes a tool object and a JSON string**, not a name and an
+object: `executeTool(toolFromGetTools, JSON.stringify(args))`.
+
+Chrome validates almost nothing at registration: empty names and non-object
+`inputSchema` values are both accepted.
+
+### The bug this found
+
+An unauthenticated tool call is not a 401. The host app's auth middleware
+redirects it to `/login`, `fetch` follows, and it arrives as 200 with an HTML
+body, which parses to null and reads as an empty result set. Logged out,
+`search_jobs` returned `{ ok: true, jobs: [], total: 0 }`, so an agent would
+report, confidently, that there are no frontend jobs in Germany.
+
+`toolFetch` now treats a redirect to `/login`, and any non-JSON body, as the
+auth failure it is. Silence and emptiness must never be confusable, and this is
+the class of bug that only a real browser finds.
+
 ## Status
 
 WebMCP is a W3C Web Machine Learning Community Group draft and is still moving.
-Tool-call timeouts and behaviour across single-page navigations are not yet
-specified; `prepare_application` can run for two minutes, which is the part of
-this most likely to need revisiting.
+Tool-call timeouts are not specified; `prepare_application` can run for two
+minutes, which is the part of this most likely to need revisiting.

@@ -18,10 +18,25 @@ import { cn } from '@/lib/utils'
 
 const EMPTY: ActivityEntry[] = []
 
+function renderValue(v: unknown): string {
+  if (Array.isArray(v)) return v.join(', ')
+  // String(v) on an object yields "[object Object]", which is exactly the
+  // wrong thing to show in a panel whose whole job is making the agent's
+  // real arguments legible.
+  if (typeof v === 'object' && v !== null) {
+    try {
+      return JSON.stringify(v)
+    } catch {
+      return '(unserialisable)'
+    }
+  }
+  return String(v)
+}
+
 function argSummary(args: Record<string, unknown>): string {
   const parts = Object.entries(args)
     .filter(([, v]) => v !== undefined && v !== null && v !== '')
-    .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : String(v)}`)
+    .map(([k, v]) => `${k}: ${renderValue(v)}`)
   if (parts.length === 0) return 'no arguments'
   const joined = parts.join('  |  ')
   return joined.length > 120 ? `${joined.slice(0, 117)}...` : joined
