@@ -35,6 +35,10 @@ function summarise(name: string, result: any): string {
       return `ATS ${result?.atsScore ?? '?'}/100, application prepared`
     case 'mark_job_applied':
       return 'Marked as applied'
+    case 'get_credit_balance':
+      return `${result?.credits?.evaluations ?? 0} evaluations left`
+    case 'get_apply_instructions':
+      return 'JobJam does not submit, link returned'
     default:
       return 'Done'
   }

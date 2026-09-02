@@ -44,6 +44,8 @@ Read-only. Free, no confirmation, safe to call unprompted.
 | `get_my_profile` | The signed-in user's profile and the skills, seniority and location derived from their resume. |
 | `rank_jobs_for_me` | Ranks jobs against that resume with a deterministic matcher. Instant, free, no AI call. |
 | `list_saved_jobs` | Saved jobs with any evaluation score and application status. |
+| `get_credit_balance` | How many credits are left, so the agent can warn before proposing a paid action rather than after. |
+| `get_apply_instructions` | States that JobJam never submits applications, and returns the employer's official URL. |
 
 Reversible state changes. Logged in the activity panel, undoable in a click.
 
@@ -62,8 +64,11 @@ Consequential. Each blocks on a human clicking Approve, and is annotated
 | `mark_job_applied` | Records that the user applied on the employer's site. |
 
 **There is no tool that submits an application to an employer.** JobJam does not
-do that, so the tool surface does not offer it. When an agent is asked to
-"just apply," the honest answer is a capability boundary, not an attempt.
+do that, so the tool surface does not offer it. But an absence is not an answer:
+an agent that finds no matching tool tends to hunt for a workaround. So the
+boundary is itself a tool. `get_apply_instructions` states why JobJam does not
+submit, returns the employer's own URL, and points at `mark_job_applied` for
+afterwards. The refusal is designed, not implied.
 
 ## Three decisions worth explaining
 

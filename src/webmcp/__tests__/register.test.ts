@@ -49,7 +49,7 @@ describe('registerJobJamTools', () => {
 
     const cleanup = registerJobJamTools()
     expect(cleanup).not.toBeNull()
-    expect(ctx.tools.size).toBeGreaterThanOrEqual(11)
+    expect(ctx.tools.size).toBeGreaterThanOrEqual(13)
 
     cleanup!()
     expect(ctx.tools.size).toBe(0)
@@ -129,6 +129,32 @@ describe('registerJobJamTools', () => {
     for (const name of ctx.tools.keys()) {
       expect(name).not.toMatch(/submit|send_application|apply_to/)
     }
+  })
+
+  // The absence of a submit tool is not self-explanatory. Asked to apply, an
+  // agent that finds no matching tool tends to hunt for a workaround; one
+  // handed an explicit tool relays the boundary and the link instead.
+  it('answers a request to apply with an explicit boundary, not silence', () => {
+    const ctx = fakeContext()
+    install(ctx)
+    registerJobJamTools()
+
+    const tool = ctx.tools.get('get_apply_instructions')
+    expect(tool).toBeDefined()
+    expect(tool!.annotations?.readOnlyHint).toBe(true)
+    expect(tool!.description.toLowerCase()).toContain('apply')
+  })
+
+  // Without this the agent proposes a paid action, the user approves it, and
+  // only then does it fail with a 402.
+  it('lets the agent check credits before proposing a paid action', () => {
+    const ctx = fakeContext()
+    install(ctx)
+    registerJobJamTools()
+
+    const tool = ctx.tools.get('get_credit_balance')
+    expect(tool).toBeDefined()
+    expect(tool!.annotations?.readOnlyHint).toBe(true)
   })
 })
 

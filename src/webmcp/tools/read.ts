@@ -511,9 +511,100 @@ const rankJobsForMe: ToolDescriptor = {
   },
 }
 
+// ─── get_credit_balance ──────────────────────────────────────────────────────
+
+const getCreditBalance: ToolDescriptor = {
+  name: 'get_credit_balance',
+  description:
+    "Check how many credits the signed-in user has left. Call this before " +
+    'proposing evaluate_job_fit (needs 1 evaluation credit) or ' +
+    'prepare_application (needs 1 evaluation, 1 optimization and 1 cover ' +
+    'letter), so you can tell them they are short instead of letting the ' +
+    'action fail after they approve it.',
+  inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  annotations: { readOnlyHint: true },
+  execute: async () => {
+    const { status, body } = await toolFetch('/api/credits/balance')
+    const failure = failFromStatus(status, body)
+    if (failure) return failure
+
+    const credits = {
+      evaluations: body?.evaluations ?? 0,
+      optimizations: body?.optimizations ?? 0,
+      coverLetters: body?.cover_letters ?? 0,
+      aiAssists: body?.ai_assists ?? 0,
+    }
+    return {
+      ok: true,
+      plan: body?.plan_id ?? 'free',
+      credits,
+      canEvaluate: credits.evaluations >= 1,
+      canPrepareApplication:
+        credits.evaluations >= 1 &&
+        credits.optimizations >= 1 &&
+        credits.coverLetters >= 1,
+      topUpUrl: '/account/billing',
+    }
+  },
+}
+
+// ─── get_apply_instructions ──────────────────────────────────────────────────
+
+const getApplyInstructions: ToolDescriptor = {
+  name: 'get_apply_instructions',
+  description:
+    'Explain how the user applies for a job, and return the employer\'s ' +
+    'official application URL. Call this whenever the user asks you to ' +
+    'apply, submit or send an application. JobJam does not submit ' +
+    'applications on anyone\'s behalf, so no tool can do that; this returns ' +
+    'the link for the user to complete themselves, and mark_job_applied ' +
+    'records it afterwards.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      jobId: { type: 'string', description: 'Job id to apply for.' },
+    },
+    required: ['jobId'],
+    additionalProperties: false,
+  },
+  annotations: { readOnlyHint: true },
+  execute: async params => {
+    const { jobId } = params as { jobId: string }
+    if (!jobId) return fail('BAD_ARGUMENT', 'jobId is required.')
+
+    const { status, body } = await toolFetch(`/api/jobs-feed/${jobId}`)
+    const failure = failFromStatus(status, body)
+    if (failure) return failure
+    if (!body?.job) return fail('NOT_FOUND', `No job with id ${jobId}.`)
+
+    const job = body.job as FeedRow
+    return {
+      ok: true,
+      canSubmitOnUserBehalf: false,
+      // Stated rather than implied. An agent told only "there is no submit
+      // tool" tends to hunt for a workaround; told why, it relays the
+      // boundary to the user instead.
+      why:
+        'JobJam never submits applications to employers. Applications go ' +
+        'through the company\'s own system, where the user may need to ' +
+        'answer questions only they can answer, and where a submission ' +
+        'cannot be taken back.',
+      steps: [
+        `Open the employer's application page: ${job.apply_url}`,
+        'Complete and submit it there.',
+        'Come back and call mark_job_applied so JobJam tracks it.',
+      ],
+      applyUrl: job.apply_url,
+      job: slim(job),
+    }
+  },
+}
+
 export const READ_TOOLS: ToolDescriptor[] = [
   searchJobs,
   getJobDetails,
   getMyProfile,
   rankJobsForMe,
+  getCreditBalance,
+  getApplyInstructions,
 ]
