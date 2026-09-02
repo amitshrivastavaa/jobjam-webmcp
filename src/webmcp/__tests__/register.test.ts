@@ -105,6 +105,22 @@ describe('registerJobJamTools', () => {
     }
   })
 
+  // Observed in the ChatGPT desktop browser: asked for "senior frontend jobs
+  // in Berlin", the agent could only send country=DE, so the board filtered to
+  // all of Germany while the reply claimed Berlin matches. The tool surface has
+  // to be able to express what a user actually asks for, or the page and the
+  // answer drift apart.
+  it('can express a city, not just a country', () => {
+    const ctx = fakeContext()
+    install(ctx)
+    registerJobJamTools()
+
+    const props = ctx.tools.get('search_jobs')!.inputSchema.properties
+    expect(Object.keys(props)).toContain('city')
+    expect(Object.keys(props)).toContain('country')
+    expect(Object.keys(props)).toContain('seniority')
+  })
+
   // Chrome 152 normalises annotations to readOnlyHint + untrustedContentHint
   // and drops destructiveHint, so through getTools() a three-credit
   // prepare_application looks identical to a free save_job. Verified against a

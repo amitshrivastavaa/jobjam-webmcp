@@ -112,6 +112,14 @@ const searchJobs: ToolDescriptor = {
         type: 'string',
         description: 'ISO 3166-1 alpha-2 country code, e.g. DE, GB, NL.',
       },
+      city: {
+        type: 'string',
+        description:
+          'City or area to match within the posting location, e.g. "Berlin". ' +
+          'Use this whenever the user names a city, alongside country rather ' +
+          'than instead of it. Postings state location as free text, so this ' +
+          'is a substring match: "Berlin" also matches "Berlin (hybrid)".',
+      },
       region: {
         type: 'string',
         enum: [...REGION_KEYS],
@@ -163,6 +171,7 @@ const searchJobs: ToolDescriptor = {
     const p = params as {
       query?: string
       country?: string
+      city?: string
       region?: string
       remote?: string
       seniority?: string
@@ -177,6 +186,7 @@ const searchJobs: ToolDescriptor = {
     if (p.query) qs.set('q', p.query)
     if (p.country) qs.set('country', p.country.toUpperCase())
     else if (p.region) qs.set('region', p.region)
+    if (p.city) qs.set('location', p.city)
     if (p.remote) qs.set('remote', p.remote)
     if (p.seniority) qs.set('seniority', p.seniority)
     if (p.company) qs.set('company', p.company)
@@ -196,6 +206,7 @@ const searchJobs: ToolDescriptor = {
     getBoard()?.applyFilters({
       q: p.query,
       country: p.country?.toUpperCase(),
+      location: p.city,
       region: p.region,
       remote: p.remote,
       seniority: p.seniority,

@@ -419,6 +419,18 @@ const evaluateJobFit: ToolDescriptor = {
       assessment: d.evaluation?.overallAssessment ?? null,
       applicationId: d.applicationId,
       conversationId: d.conversationId,
+      // The evaluation produces exactly one score, and the same value is
+      // written to the tracker row and drawn in the Profile Fit ring. Said
+      // out loud because an agent that also reads the page has been seen
+      // inventing a second "detailed" score and then narrating a conflict
+      // between the two, which reads to a user as a bug in JobJam.
+      note:
+        'atsScore is the single authoritative score for this evaluation. ' +
+        'The application in the tracker and the Profile Fit panel on screen ' +
+        'both show this same number. There is no second or more detailed ' +
+        'ATS score to reconcile it against. The 0-10 figure from ' +
+        'rank_jobs_for_me is a free shortlisting heuristic and is not ' +
+        'comparable.',
     }
   },
 }
@@ -500,8 +512,19 @@ const prepareApplication: ToolDescriptor = {
     // A later step failing must not discard the earlier one: the credit is
     // already spent and the evaluation is already useful. Report per step.
     steps.resume = optimized.status === 200 ? 'done' : 'failed'
+    // The route's payload key is `optimizedResumeId`. Reading only
+    // documentId/resumeId always missed it, so the cover letter was written
+    // against the ORIGINAL resume while reporting the optimized one.
     const optimizedResumeId =
-      optimized.body?.documentId ?? optimized.body?.resumeId ?? null
+      optimized.body?.optimizedResumeId ??
+      optimized.body?.documentId ??
+      optimized.body?.resumeId ??
+      null
+    // Optimization re-scores the rewritten resume, so this chain legitimately
+    // produces two numbers and the page shows both. Return them together;
+    // left to infer, an agent narrates the pair as a contradiction.
+    const atsScoreAfterOptimization =
+      optimized.body?.atsScoreImprovement?.after ?? null
 
     const letter = await toolFetch('/api/ai/generate-cover-letter', {
       method: 'POST',
@@ -521,12 +544,15 @@ const prepareApplication: ToolDescriptor = {
     return {
       ok: true,
       atsScore,
+      atsScoreAfterOptimization,
       applicationId,
       steps,
       reviewUrl: applicationId ? `/applications/${applicationId}` : null,
       note:
         'Nothing was sent to the employer. The user should review the ' +
-        'application before applying.',
+        'application before applying. atsScore is the original resume ' +
+        'against this job; atsScoreAfterOptimization is the rewritten one. ' +
+        'Report them as a before and after, not as conflicting scores.',
     }
   },
 }
