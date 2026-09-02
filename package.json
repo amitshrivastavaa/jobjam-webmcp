@@ -1,0 +1,15 @@
+{
+  "name": "jobjam-webmcp",
+  "version": "0.1.0",
+  "description": "WebMCP tool layer that makes JobJam operable by a browser agent",
+  "license": "MIT",
+  "private": false,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "demo": "npx --yes serve demo -l 4321"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.14"
+  }
+}

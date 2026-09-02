@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>JobJam WebMCP demo</title>
+<style>
+  :root { color-scheme: light dark; --fg:#111; --bg:#fafafa; --card:#fff;
+          --muted:#666; --line:#e5e5e5; --ok:#047857; --warn:#b45309; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg:#eee; --bg:#111; --card:#1a1a1a; --muted:#999; --line:#2c2c2c;
+            --ok:#34d399; --warn:#fbbf24; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:2rem 1rem; background:var(--bg); color:var(--fg);
+         font:14px/1.55 ui-sans-serif,system-ui,-apple-system,sans-serif; }
+  main { max-width: 46rem; margin: 0 auto; }
+  h1 { font-size:1.35rem; margin:0 0 .35rem; }
+  p.sub { color:var(--muted); margin:0 0 1.5rem; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px;
+          padding:1rem; margin-bottom:1rem; }
+  .status { font-weight:600; }
+  .status.on { color:var(--ok); }
+  .status.off { color:var(--warn); }
+  code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.85em; }
+  ol.tools { margin:0; padding-left:1.1rem; }
+  ol.tools li { margin-bottom:.6rem; }
+  ol.tools code { font-weight:600; }
+  ol.tools span { display:block; color:var(--muted); }
+  #log { list-style:none; margin:0; padding:0; max-height:20rem; overflow-y:auto; }
+  #log li { border-bottom:1px solid var(--line); padding:.5rem 0; }
+  #log li:last-child { border-bottom:0; }
+  #log .args, #log .res { color:var(--muted); font-size:.85em; word-break:break-word; }
+  .empty { color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>JobJam WebMCP demo</h1>
+  <p class="sub">
+    A standalone page that registers JobJam's public job-market tools with the
+    browser. No login, no JobJam backend: it reads anon-granted Postgres
+    functions directly.
+  </p>
+
+  <div class="card">
+    WebMCP: <span id="status" class="status off">checking...</span>
+    <div id="hint" class="sub" style="margin:.5rem 0 0"></div>
+  </div>
+
+  <div class="card">
+    <strong>Registered tools</strong>
+    <ol class="tools" id="tools" style="margin-top:.75rem"></ol>
+  </div>
+
+  <div class="card">
+    <strong>Tool calls</strong>
+    <ul id="log" style="margin-top:.75rem"><li class="empty">Nothing yet. Ask the agent to find companies hiring React engineers.</li></ul>
+  </div>
+</main>
+
+<script src="./config.js"></script>
+<script>
+(function () {
+  var cfg = window.JOBJAM_DEMO_CONFIG || {}
+  var configured = cfg.supabaseUrl && cfg.supabaseUrl.indexOf('YOUR-PROJECT') === -1
+
+  // PostgREST RPC is a plain POST, so the demo needs no SDK and no build step.
+  async function rpc(fn, args) {
+    var res = await fetch(cfg.supabaseUrl + '/rest/v1/rpc/' + fn, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: cfg.anonKey,
+        Authorization: 'Bearer ' + cfg.anonKey,
+      },
+      body: JSON.stringify(args || {}),
+    })
+    if (!res.ok) throw new Error(fn + ' failed with status ' + res.status)
+    return res.json()
+  }
+
+  var logEl = document.getElementById('log')
+  function log(name, args, render) {
+    if (logEl.querySelector('.empty')) logEl.innerHTML = ''
+    var li = document.createElement('li')
+    li.innerHTML =
+      '<code>' + name + '</code>' +
+      '<div class="args"></div><div class="res">running...</div>'
+    li.querySelector('.args').textContent = JSON.stringify(args)
+    logEl.prepend(li)
+    var started = Date.now()
+    return function done(text) {
+      li.querySelector('.res').textContent =
+        text + '  (' + ((Date.now() - started) / 1000).toFixed(1) + 's)'
+      void render
+    }
+  }
+
+  var TOOLS = [
+    {
+      name: 'find_hiring_companies',
+      description:
+        'Find companies with live open roles on JobJam, ranked by how many ' +
+        'they have open right now. Use this to discover who is hiring before ' +
+        'looking at individual jobs.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          minOpenRoles: {
+            type: 'number',
+            description: 'Only companies with at least this many open roles. Defaults to 10.',
+          },
+          limit: { type: 'number', description: 'Maximum companies to return. Defaults to 25.' },
+        },
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true },
+      execute: async function (p) {
+        var done = log('find_hiring_companies', p || {})
+        var rows = await rpc('jobs_feed_company_directory', {
+          p_min_active: Math.max(1, Math.round((p && p.minOpenRoles) || 10)),
+        })
+        var limit = Math.max(1, Math.round((p && p.limit) || 25))
+        var companies = (rows || []).slice(0, limit).map(function (r) {
+          return { company: r.company, openRoles: r.active_count }
+        })
+        done(companies.length + ' companies')
+        return { ok: true, companies: companies, total: (rows || []).length }
+      },
+    },
+    {
+      name: 'get_company_jobs',
+      description:
+        'List the live open roles at one company, with location, work model, ' +
+        'seniority and tech stack. Pass a company name exactly as returned by ' +
+        'find_hiring_companies.',
+      inputSchema: {
+        type: 'object',
+        properties: { company: { type: 'string', description: 'Company name.' } },
+        required: ['company'],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true },
+      execute: async function (p) {
+        var done = log('get_company_jobs', p || {})
+        var page = await rpc('jobs_feed_company_page', { p_company: p.company })
+        if (!page || !page.jobs) {
+          done('not found')
+          return { ok: false, error: 'NOT_FOUND', message: 'No company named ' + p.company + '.' }
+        }
+        done(page.jobs.length + ' open roles')
+        return {
+          ok: true,
+          company: p.company,
+          openRoles: page.jobs.length,
+          jobs: page.jobs.map(function (j) {
+            return {
+              title: j.title, location: j.location, remote: j.remote,
+              seniority: j.seniority, stack: j.stack_tags,
+              salary: j.salary_range, applyUrl: j.apply_url,
+            }
+          }),
+          medianDaysToClose: page.median_days_open || null,
+        }
+      },
+    },
+    {
+      name: 'get_hiring_market_stats',
+      description:
+        "Get JobJam's live hiring-market report: how long roles stay open " +
+        'before they close, remote and seniority mix, top tech stacks and ' +
+        'salary-disclosure rates by country. Because JobJam records when ' +
+        'postings close, the timing figures cannot be derived from a job ' +
+        'board that only lists what is currently open.',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      annotations: { readOnlyHint: true },
+      execute: async function () {
+        var done = log('get_hiring_market_stats', {})
+        var r = await rpc('jobs_feed_market_report', {})
+        done('report loaded')
+        return {
+          ok: true,
+          totalLiveRoles: r && r.totals ? r.totals.live : null,
+          timeToClose: r ? r.time_to_fill : null,
+          workModel: r ? r.remote_mix : null,
+          seniority: r ? r.seniority_mix : null,
+          topStacks: r ? r.stacks : null,
+          salaryDisclosure: r ? r.salary : null,
+          caveat:
+            'Days live is not time to hire: a posting can close because it ' +
+            'was filled, cancelled, or the company changed ATS.',
+        }
+      },
+    },
+  ]
+
+  var listEl = document.getElementById('tools')
+  TOOLS.forEach(function (t) {
+    var li = document.createElement('li')
+    li.innerHTML = '<code></code><span></span>'
+    li.querySelector('code').textContent = t.name
+    li.querySelector('span').textContent = t.description
+    listEl.appendChild(li)
+  })
+
+  var ctx =
+    (document.modelContext && document.modelContext.registerTool && document.modelContext) ||
+    (navigator.modelContext && navigator.modelContext.registerTool && navigator.modelContext) ||
+    null
+
+  var statusEl = document.getElementById('status')
+  var hintEl = document.getElementById('hint')
+
+  if (!configured) {
+    statusEl.textContent = 'not configured'
+    hintEl.textContent =
+      'Fill in demo/config.js with a Supabase URL and publishable anon key, then reload.'
+    return
+  }
+
+  if (!ctx) {
+    statusEl.textContent = 'not available in this browser'
+    hintEl.innerHTML =
+      'Open this page in the ChatGPT desktop app’s built-in browser, or in ' +
+      'Chrome 149+ with <code>chrome://flags/#enable-webmcp-testing</code> enabled. ' +
+      'WebMCP needs a secure context, so serve over HTTPS or localhost, not file://.'
+    return
+  }
+
+  TOOLS.forEach(function (t) {
+    try {
+      ctx.registerTool(t)
+    } catch (err) {
+      console.warn('could not register ' + t.name, err)
+    }
+  })
+
+  statusEl.className = 'status on'
+  statusEl.textContent = 'connected, ' + TOOLS.length + ' tools registered'
+  hintEl.textContent =
+    'Try: "Which companies are hiring the most right now, and how long do their roles stay open?"'
+})()
+</script>
+</body>
+</html>
