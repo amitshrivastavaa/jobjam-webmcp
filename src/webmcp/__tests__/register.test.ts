@@ -1,0 +1,148 @@
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
+import { isWebMcpAvailable, registerJobJamTools } from '@/webmcp/register'
+import type { ToolDescriptor } from '@/webmcp/types'
+
+// A stand-in for the browser's ModelContext. Registering against a fake is the
+// only way to assert the contract without a WebMCP-capable browser, and it
+// catches the failures that actually bite at runtime: a duplicate tool name
+// (registerTool throws InvalidStateError), a malformed inputSchema, or a
+// required field that names a property the schema never declares.
+function fakeContext() {
+  const tools = new Map<string, ToolDescriptor>()
+  return {
+    tools,
+    registerTool(tool: ToolDescriptor) {
+      if (tools.has(tool.name)) {
+        throw new Error(`InvalidStateError: ${tool.name} already registered`)
+      }
+      if (!tool.name || !tool.description) {
+        throw new Error('InvalidStateError: empty name or description')
+      }
+      tools.set(tool.name, tool)
+    },
+    unregisterTool(name: string) {
+      tools.delete(name)
+    },
+  }
+}
+
+function install(ctx: ReturnType<typeof fakeContext> | null) {
+  Object.defineProperty(document, 'modelContext', {
+    value: ctx ?? undefined,
+    configurable: true,
+    writable: true,
+  })
+}
+
+describe('registerJobJamTools', () => {
+  afterEach(() => install(null))
+
+  it('registers nothing and returns null without WebMCP support', () => {
+    install(null)
+    expect(isWebMcpAvailable()).toBe(false)
+    expect(registerJobJamTools()).toBeNull()
+  })
+
+  it('registers the full tool set', () => {
+    const ctx = fakeContext()
+    install(ctx)
+
+    const cleanup = registerJobJamTools()
+    expect(cleanup).not.toBeNull()
+    expect(ctx.tools.size).toBeGreaterThanOrEqual(10)
+
+    cleanup!()
+    expect(ctx.tools.size).toBe(0)
+  })
+
+  // registerTool throws on a duplicate name, and one throw mid-batch would
+  // leave the page with a partial tool set. Registering twice must be safe.
+  it('is idempotent across repeated registration', () => {
+    const ctx = fakeContext()
+    install(ctx)
+
+    registerJobJamTools()
+    const size = ctx.tools.size
+    registerJobJamTools()
+
+    expect(ctx.tools.size).toBe(size)
+  })
+
+  it('declares a well-formed schema for every tool', () => {
+    const ctx = fakeContext()
+    install(ctx)
+    registerJobJamTools()
+
+    for (const [name, tool] of ctx.tools) {
+      expect(tool.inputSchema.type, name).toBe('object')
+      // Without this an agent can smuggle unvalidated extra arguments.
+      expect(tool.inputSchema.additionalProperties, name).toBe(false)
+      expect(tool.description.length, name).toBeGreaterThan(40)
+
+      for (const key of tool.inputSchema.required ?? []) {
+        expect(Object.keys(tool.inputSchema.properties), name).toContain(key)
+      }
+    }
+  })
+
+  // The annotation is what tells the agent, before it calls, that an action
+  // spends the user's money. A missing one silently downgrades a paid action
+  // to an apparently free one.
+  it('annotates every credit-spending tool as destructive', () => {
+    const ctx = fakeContext()
+    install(ctx)
+    registerJobJamTools()
+
+    for (const name of [
+      'evaluate_job_fit',
+      'prepare_application',
+      'mark_job_applied',
+    ]) {
+      expect(ctx.tools.get(name)?.annotations?.destructiveHint, name).toBe(true)
+    }
+    for (const name of ['search_jobs', 'get_job_details', 'rank_jobs_for_me']) {
+      expect(ctx.tools.get(name)?.annotations?.readOnlyHint, name).toBe(true)
+    }
+  })
+
+  it('exposes no tool that submits an application to an employer', () => {
+    const ctx = fakeContext()
+    install(ctx)
+    registerJobJamTools()
+
+    for (const name of ctx.tools.keys()) {
+      expect(name).not.toMatch(/submit|send_application|apply_to/)
+    }
+  })
+})
+
+describe('tool wrapper', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+    install(null)
+  })
+
+  // A thrown Error usually reaches the agent as an opaque tool failure. The
+  // wrapper turns it into a result the agent can reason about instead.
+  it('resolves rather than throws when a handler fails', async () => {
+    const ctx = fakeContext()
+    install(ctx)
+    registerJobJamTools()
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new Error('network down')))
+    )
+
+    const result: any = await ctx.tools
+      .get('search_jobs')!
+      .execute({ query: 'frontend' })
+
+    expect(result.ok).toBe(false)
+    expect(result.message).toContain('network down')
+    vi.unstubAllGlobals()
+  })
+})

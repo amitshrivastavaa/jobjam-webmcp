@@ -10,6 +10,7 @@
     "demo": "npx --yes serve demo -l 4321"
   },
   "devDependencies": {
+    "jsdom": "^27.2.0",
     "vitest": "^4.0.14"
   }
 }
