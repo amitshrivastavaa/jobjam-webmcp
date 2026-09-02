@@ -49,7 +49,7 @@ describe('registerJobJamTools', () => {
 
     const cleanup = registerJobJamTools()
     expect(cleanup).not.toBeNull()
-    expect(ctx.tools.size).toBeGreaterThanOrEqual(10)
+    expect(ctx.tools.size).toBeGreaterThanOrEqual(11)
 
     cleanup!()
     expect(ctx.tools.size).toBe(0)
@@ -103,6 +103,22 @@ describe('registerJobJamTools', () => {
     for (const name of ['search_jobs', 'get_job_details', 'rank_jobs_for_me']) {
       expect(ctx.tools.get(name)?.annotations?.readOnlyHint, name).toBe(true)
     }
+  })
+
+  // A signed-in user with no profile yet must be reachable from zero: without
+  // this tool every ranking and evaluation dead-ends at NO_RESUME and the
+  // agent can only tell them to go and use the website by hand.
+  it('can onboard a user who has no profile yet', () => {
+    const ctx = fakeContext()
+    install(ctx)
+    registerJobJamTools()
+
+    const onboard = ctx.tools.get('create_profile_from_resume')
+    expect(onboard).toBeDefined()
+    expect(onboard!.inputSchema.required).toEqual(['resumeText', 'jobFocus'])
+    // It writes a profile but spends nothing, so it must not be advertised
+    // as destructive.
+    expect(onboard!.annotations?.destructiveHint).toBe(false)
   })
 
   it('exposes no tool that submits an application to an employer', () => {

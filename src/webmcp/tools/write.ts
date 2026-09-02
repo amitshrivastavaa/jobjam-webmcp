@@ -152,6 +152,149 @@ const listSavedJobs: ToolDescriptor = {
   },
 }
 
+// ─── create_profile_from_resume ──────────────────────────────────────────────
+
+const createProfileFromResume: ToolDescriptor = {
+  name: 'create_profile_from_resume',
+  description:
+    'Create the user\'s JobJam profile from their resume text and set that ' +
+    'resume as their base resume. Call this when get_my_profile reports ' +
+    'hasResume: false, or when any tool fails with NO_RESUME. Ask the user ' +
+    'to paste their resume as plain text first. Spends no credits, but ' +
+    'requires approval because it creates their profile, and the free plan ' +
+    'allows only one.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      resumeText: {
+        type: 'string',
+        description:
+          'The full plain text of the resume, as the user pasted it. At ' +
+          'least a few hundred characters: a name and a job title alone ' +
+          'will not parse into anything useful.',
+      },
+      jobFocus: {
+        type: 'string',
+        description:
+          'The kind of role they are targeting, e.g. "Senior Frontend ' +
+          'Engineer". Drives seniority inference for ranking. Required.',
+      },
+      profileName: {
+        type: 'string',
+        description:
+          'Label for this profile, e.g. "Frontend roles". Defaults to the ' +
+          'job focus.',
+      },
+    },
+    required: ['resumeText', 'jobFocus'],
+    additionalProperties: false,
+  },
+  annotations: { destructiveHint: false },
+  execute: async params => {
+    const { resumeText, jobFocus, profileName } = params as {
+      resumeText: string
+      jobFocus: string
+      profileName?: string
+    }
+    // Matches MIN_PASTED_RESUME_CHARS on the public try-it flow: below this
+    // the text cannot plausibly be a resume and the parse is wasted.
+    if (!resumeText || resumeText.trim().length < 200) {
+      return fail(
+        'RESUME_TOO_SHORT',
+        'That is too short to parse as a resume. Ask the user to paste the ' +
+          'full text, including their experience and skills.'
+      )
+    }
+    if (!jobFocus?.trim()) {
+      return fail('BAD_ARGUMENT', 'jobFocus is required.')
+    }
+
+    const name = (profileName?.trim() || jobFocus.trim()).slice(0, 100)
+
+    const approved = await requestApproval({
+      tool: 'create_profile_from_resume',
+      title: `Create a JobJam profile for "${jobFocus.trim()}"?`,
+      consequences: [
+        'Creates a profile and saves the pasted resume to your account',
+        'Spends no credits',
+        'The free plan allows one profile, so this uses that slot',
+      ],
+      destructive: false,
+    })
+    if (!approved) return DENIED
+
+    const created = await toolFetch('/api/profiles', {
+      method: 'POST',
+      body: JSON.stringify({ name, jobFocus: jobFocus.trim().slice(0, 100) }),
+    })
+    if (created.status === 403) {
+      return fail(
+        'PROFILE_LIMIT_REACHED',
+        created.body?.error ??
+          'This account has reached its profile limit. Use the existing ' +
+            'profile instead of creating another.'
+      )
+    }
+    const createFailure = failFromStatus(created.status, created.body)
+    if (createFailure) return createFailure
+
+    const profileId = created.body?.profile?.id ?? created.body?.id
+    if (!profileId) {
+      return fail('REQUEST_FAILED', 'The profile was created without an id.')
+    }
+
+    // The parser takes a file, so wrap the pasted text the same way the
+    // public try-it flow does. text/plain is an accepted upload type.
+    const form = new FormData()
+    form.append(
+      'file',
+      new File([resumeText.trim()], 'resume.txt', { type: 'text/plain' })
+    )
+    form.append('type', 'resume')
+
+    const parsed = await toolFetch('/api/documents/parse', {
+      method: 'POST',
+      body: form,
+    })
+    if (parsed.status !== 200 || !parsed.body?.content) {
+      return fail(
+        'PARSE_FAILED',
+        'The profile was created, but the resume text could not be parsed. ' +
+          `Ask the user to add it at /profiles. Profile id: ${profileId}.`
+      )
+    }
+
+    // setAsBase links the document through profile_documents, which is what
+    // every downstream tool reads. Creating the document without it leaves a
+    // profile that still reports NO_RESUME.
+    const saved = await toolFetch('/api/documents', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'resume',
+        title: `${name} resume`,
+        content: parsed.body.content,
+        profileId,
+        setAsBase: true,
+      }),
+    })
+    const saveFailure = failFromStatus(saved.status, saved.body)
+    if (saveFailure) return saveFailure
+
+    const basics = (parsed.body.content as { basics?: any })?.basics ?? {}
+    return {
+      ok: true,
+      profileId,
+      profileName: name,
+      jobFocus: jobFocus.trim(),
+      parsedName: basics.name ?? null,
+      parsedLocation: basics.location?.address ?? null,
+      note:
+        'The profile is ready. rank_jobs_for_me and evaluate_job_fit will ' +
+        'now work for this user.',
+    }
+  },
+}
+
 // ─── evaluate_job_fit ────────────────────────────────────────────────────────
 
 interface EvaluationPayload {
@@ -184,7 +327,8 @@ async function runEvaluation(
       error: fail(
         'NO_RESUME',
         'Evaluation needs a profile with a base resume. Ask the user to ' +
-          'set one up at /profiles first.'
+          'paste their resume text, then call create_profile_from_resume ' +
+          'first. That costs nothing.'
       ),
     }
   }
@@ -435,6 +579,7 @@ export const WRITE_TOOLS: ToolDescriptor[] = [
   saveJob,
   unsaveJob,
   listSavedJobs,
+  createProfileFromResume,
   evaluateJobFit,
   prepareApplication,
   markJobApplied,

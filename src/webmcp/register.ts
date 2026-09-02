@@ -27,6 +27,8 @@ function summarise(name: string, result: any): string {
       return 'Removed from saved'
     case 'list_saved_jobs':
       return `${result?.total ?? 0} saved`
+    case 'create_profile_from_resume':
+      return `Profile created: ${result?.profileName ?? 'ready'}`
     case 'evaluate_job_fit':
       return `ATS score ${result?.atsScore ?? '?'}/100`
     case 'prepare_application':

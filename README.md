@@ -50,6 +50,7 @@ Reversible state changes. Logged in the activity panel, undoable in a click.
 | Tool | What it does |
 |---|---|
 | `save_job` / `unsave_job` | Bookmarks a job. Idempotent. |
+| `create_profile_from_resume` | Creates the user's profile from pasted resume text and sets it as their base resume. Free, but asks first. |
 
 Consequential. Each blocks on a human clicking Approve, and is annotated
 `destructiveHint: true`.

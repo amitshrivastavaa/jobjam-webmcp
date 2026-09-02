@@ -440,8 +440,9 @@ const rankJobsForMe: ToolDescriptor = {
     if (!resolved.resume) {
       return fail(
         'NO_RESUME',
-        'This user has no base resume on their profile yet, so there is ' +
-          'nothing to rank against. Ask them to add one at /profiles.'
+        'This user has no base resume yet, so there is nothing to rank ' +
+          'against. Ask them to paste their resume text, then call ' +
+          'create_profile_from_resume. That costs nothing.'
       )
     }
 
