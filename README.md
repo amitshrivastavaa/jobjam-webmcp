@@ -17,14 +17,22 @@ about in public.
 
 ## See it running
 
-The layer is live at **[app.jobjam.io](https://app.jobjam.io)**. Open it in a
-browser with WebMCP (see [Running the demo](#running-the-demo) for which ones)
-and **[app.jobjam.io/webmcp](https://app.jobjam.io/webmcp)** reports every tool
-this page registered and whether your browser can see them.
+The layer is live at **[app.jobjam.io](https://app.jobjam.io)**, in either:
+
+- the **ChatGPT desktop app's built-in browser** (site tools need GPT-5.6 Terra
+  or Sol — this layer was exercised on Terra — and are unavailable in
+  Enterprise and Edu workspaces), or
+- **Chrome 149+** with `chrome://flags/#enable-webmcp-testing` enabled.
+
+**[app.jobjam.io/webmcp](https://app.jobjam.io/webmcp)** reports every tool the
+page registered and whether your browser can see them, which is the fastest way
+to tell a setup problem from a code one.
 
 A new account gets free evaluation credits, so the approval-gated path can be
-exercised end to end without paying: sign in, add a resume, and ask the agent
-to evaluate you against a posting.
+exercised end to end without paying: sign in, add a resume, then ask the agent
+*"find senior frontend jobs in Berlin, tell me which fit me, and evaluate me
+against the best one"*. The filters move, the ranking is free, and the
+evaluation stops for your approval before it spends anything.
 
 ## The idea
 
@@ -126,39 +134,11 @@ src/webmcp/
   matching/           the deterministic resume-to-job matcher (pure functions)
   ui/                 activity panel, approval dialog, provider
   __tests__/          the tool contract, the login-redirect bug, the approval gate
-demo/                 a standalone WebMCP page, no login and no backend needed
 ```
 
 `document.modelContext` is read first and `navigator.modelContext` second, so
 one build works on browsers that shipped either: the getter moved from Navigator
 to Document in the May 2026 draft and the old form is deprecated in Chromium 150.
-
-## Running the demo
-
-The demo registers three public job-market tools and needs no JobJam account,
-no server and no build step. It reads JobJam's anon-granted Postgres functions
-directly.
-
-```bash
-npm run demo   # serves on http://localhost:4321
-```
-
-`demo/config.js` ships JobJam's own Supabase URL and publishable key, so there
-is nothing to fill in. Point it at your own project if you would rather.
-
-Then open `http://localhost:4321` in either:
-
-- the **ChatGPT desktop app's built-in browser** (site tools need GPT-5.6 Terra
-  or Sol — this layer was exercised on Terra — and are unavailable in
-  Enterprise and Edu workspaces), or
-- **Chrome 149+** with `chrome://flags/#enable-webmcp-testing` enabled.
-
-WebMCP requires a secure context, so `localhost` or HTTPS. Opening the file
-directly over `file://` will not work.
-
-Ask the agent: *"Which companies are hiring the most right now, and how long do
-their roles stay open?"* The last part is answerable because JobJam records when
-postings close, not only what is currently open.
 
 ## Using the layer in a host app
 

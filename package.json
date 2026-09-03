@@ -6,8 +6,7 @@
   "private": false,
   "type": "module",
   "scripts": {
-    "test": "vitest run",
-    "demo": "npx --yes serve demo -l 4321"
+    "test": "vitest run"
   },
   "devDependencies": {
     "jsdom": "^27.2.0",
