@@ -15,6 +15,17 @@ It is MIT licensed. JobJam's application code is closed; the agent surface is
 not, because how a website hands control to an agent is the part worth arguing
 about in public.
 
+## See it running
+
+The layer is live at **[app.jobjam.io](https://app.jobjam.io)**. Open it in a
+browser with WebMCP (see [Running the demo](#running-the-demo) for which ones)
+and **[app.jobjam.io/webmcp](https://app.jobjam.io/webmcp)** reports every tool
+this page registered and whether your browser can see them.
+
+A new account gets free evaluation credits, so the approval-gated path can be
+exercised end to end without paying: sign in, add a resume, and ask the agent
+to evaluate you against a posting.
+
 ## The idea
 
 Most attempts to let an agent use a website end up scraping the DOM or handing a
@@ -47,7 +58,8 @@ Read-only. Free, no confirmation, safe to call unprompted.
 | `get_credit_balance` | How many credits are left, so the agent can warn before proposing a paid action rather than after. |
 | `get_apply_instructions` | States that JobJam never submits applications, and returns the employer's official URL. |
 
-Reversible state changes. Logged in the activity panel, undoable in a click.
+Reversible state changes. Logged in the activity panel, and undone the same
+way a human would undo them: the opposite tool, or the control in the page.
 
 | Tool | What it does |
 |---|---|
@@ -78,10 +90,12 @@ request while one is on screen rather than lining it up
 in front of them and silently authorise the next one behind it. An agent firing
 three consequential actions at once should be stopped, not helped along.
 
-**Reversible actions get no modal.** Bookmarking asks for nothing. A
-confirmation on every low-stakes action trains people to click through
-confirmations, which is exactly the habit you do not want when the dialog that
-matters finally appears.
+**The modal is for consequence, not for change.** Bookmarking asks for
+nothing. A confirmation on every low-stakes action trains people to click
+through confirmations, which is exactly the habit you do not want when the
+dialog that matters finally appears. The line is not free-versus-paid:
+`create_profile_from_resume` spends no credits and still asks, because the
+free plan allows one profile and creating it uses that slot.
 
 **Tools drive the real UI.** `search_jobs` calls the same `commitFilters` path a
 human click uses, so the filter chips change and the list re-renders. An agent
@@ -99,7 +113,7 @@ src/webmcp/
   tools/write.ts      state changes and consequential actions
   matching/           the deterministic resume-to-job matcher (pure functions)
   ui/                 activity panel, approval dialog, provider
-  __tests__/          runnable tests for the salary heuristic and the approval gate
+  __tests__/          the tool contract, the login-redirect bug, the approval gate
 demo/                 a standalone WebMCP page, no login and no backend needed
 ```
 
@@ -114,15 +128,17 @@ no server and no build step. It reads JobJam's anon-granted Postgres functions
 directly.
 
 ```bash
-cp demo/config.js demo/config.local.js   # optional
-# edit demo/config.js with a Supabase URL and publishable anon key
-npm run demo                             # serves on http://localhost:4321
+npm run demo   # serves on http://localhost:4321
 ```
+
+`demo/config.js` ships JobJam's own Supabase URL and publishable key, so there
+is nothing to fill in. Point it at your own project if you would rather.
 
 Then open `http://localhost:4321` in either:
 
-- the **ChatGPT desktop app's built-in browser** (site tools need GPT-5.6 Sol or
-  Terra, and are unavailable in Enterprise and Edu workspaces), or
+- the **ChatGPT desktop app's built-in browser** (site tools need GPT-5.6 Terra
+  or Sol — this layer was exercised on Terra — and are unavailable in
+  Enterprise and Edu workspaces), or
 - **Chrome 149+** with `chrome://flags/#enable-webmcp-testing` enabled.
 
 WebMCP requires a secure context, so `localhost` or HTTPS. Opening the file

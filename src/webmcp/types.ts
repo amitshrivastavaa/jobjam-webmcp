@@ -92,7 +92,7 @@ export function fail(error: string, message: string): ToolResult<never> {
 }
 
 /**
- * Wraps fetch for tool handlers. Same-origin and credentials: 'include' are
+ * Wraps fetch for tool handlers. Same-origin credentials are
  * the whole security story here: the browser attaches JobJam's HttpOnly
  * Supabase cookie, the handler runs under that session's RLS identity, and
  * the agent never sees a token. Never add an Authorization header to this.
