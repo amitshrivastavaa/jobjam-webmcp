@@ -1,11 +1,14 @@
-import { describe, expect, it, beforeEach } from 'vitest'
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 import { maxSalaryIn } from '@/webmcp/tools/read'
+import { WRITE_TOOLS } from '@/webmcp/tools/write'
 import {
   activity,
   approval,
   clearActivity,
   connectBoard,
+  connectNavigation,
   getBoard,
+  getNavigation,
   logEnd,
   logStart,
   requestApproval,
@@ -113,5 +116,119 @@ describe('board bridge', () => {
 
     disconnect()
     expect(getBoard()).toBeNull()
+  })
+})
+
+describe('navigation bridge', () => {
+  it('is absent until a provider mounts, and cleared on unmount', () => {
+    expect(getNavigation()).toBeNull()
+
+    const disconnect = connectNavigation(() => {})
+    expect(getNavigation()).not.toBeNull()
+
+    disconnect()
+    expect(getNavigation()).toBeNull()
+  })
+})
+
+// An evaluation the user paid for has to end up on screen. Before this, the
+// score came back to the agent and the page it was called from did not move,
+// so a user who had just approved a credit saw nothing change.
+describe('evaluate_job_fit shows its result', () => {
+  const evaluate = WRITE_TOOLS.find(t => t.name === 'evaluate_job_fit')!
+
+  function stubApi(evaluation: Record<string, unknown> = {}) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (path: string) => {
+        const body = path.includes('/api/profiles/')
+          ? { baseResume: { id: 'resume-1', content: {} } }
+          : path.includes('/api/profiles')
+            ? { profiles: [{ id: 'profile-1', name: 'Default' }] }
+            : path.includes('/description')
+              ? { description: 'A long job description.' }
+              : path.includes('/api/jobs-feed/')
+                ? { job: { title: 'React Developer', company: 'urbansportsclub' } }
+                : {
+                    atsScore: 74,
+                    applicationId: 'app-9',
+                    conversationId: 'c-1',
+                    ...evaluation,
+                  }
+
+        return {
+          status: 200,
+          ok: true,
+          url: `http://localhost:3000${path}`,
+          redirected: false,
+          headers: { get: () => 'application/json' },
+          json: async () => body,
+        } as unknown as Response
+      })
+    )
+  }
+
+  // The approval dialog only appears after jobLabel's fetch resolves.
+  async function pendingApproval() {
+    for (let i = 0; i < 50 && !approval.get(); i++) {
+      await new Promise(r => setTimeout(r, 0))
+    }
+    return approval.get()
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    if (approval.get()) settleApproval(false)
+  })
+
+  it('navigates to the application it created', async () => {
+    stubApi()
+    const navigate = vi.fn()
+    const disconnect = connectNavigation(navigate)
+
+    const running = evaluate.execute({ jobId: 'job-1' })
+    expect(await pendingApproval()).not.toBeNull()
+    settleApproval(true)
+
+    const result = (await running) as Record<string, unknown>
+    expect(result.ok).toBe(true)
+    expect(result.shownOnScreen).toBe(true)
+    expect(navigate).toHaveBeenCalledWith('/apply/ai-assistant/c/c-1')
+
+    disconnect()
+  })
+
+  // Only the conversation view renders the score, the skills and the
+  // recommendations. The tracker row is a filing record and shows none of
+  // them, so it is a fallback for an evaluation with no conversation, never
+  // the destination.
+  it('falls back to the tracker when there is no conversation', async () => {
+    stubApi({ conversationId: null })
+    const navigate = vi.fn()
+    const disconnect = connectNavigation(navigate)
+
+    const running = evaluate.execute({ jobId: 'job-1' })
+    expect(await pendingApproval()).not.toBeNull()
+    settleApproval(true)
+
+    await running
+    expect(navigate).toHaveBeenCalledWith('/applications/app-9')
+
+    disconnect()
+  })
+
+  it('goes nowhere when the user declines', async () => {
+    stubApi()
+    const navigate = vi.fn()
+    const disconnect = connectNavigation(navigate)
+
+    const running = evaluate.execute({ jobId: 'job-1' })
+    expect(await pendingApproval()).not.toBeNull()
+    settleApproval(false)
+
+    await running
+    expect(navigate).not.toHaveBeenCalled()
+
+    disconnect()
   })
 })

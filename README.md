@@ -71,8 +71,8 @@ Consequential. Each blocks on a human clicking Approve, and is annotated
 
 | Tool | What it does |
 |---|---|
-| `evaluate_job_fit` | Full AI evaluation of the resume against one posting. Spends 1 credit. |
-| `prepare_application` | Evaluate, then rewrite the resume for the posting, then draft a cover letter. Spends 3 credits, takes up to two minutes. |
+| `evaluate_job_fit` | Full AI evaluation of the resume against one posting. Spends 1 credit, and opens the result in the page. |
+| `prepare_application` | Evaluate, then rewrite the resume for the posting, then draft a cover letter. Spends 3 credits, takes up to two minutes, and opens the result in the page. |
 | `mark_job_applied` | Records that the user applied on the employer's site. |
 
 **There is no tool that submits an application to an employer.** JobJam does not
@@ -82,7 +82,7 @@ boundary is itself a tool. `get_apply_instructions` states why JobJam does not
 submit, returns the employer's own URL, and points at `mark_job_applied` for
 afterwards. The refusal is designed, not implied.
 
-## Three decisions worth explaining
+## Four decisions worth explaining
 
 **Approval is serialised, never queued.** `requestApproval()` rejects a second
 request while one is on screen rather than lining it up
@@ -102,13 +102,25 @@ human click uses, so the filter chips change and the list re-renders. An agent
 tool that only returns JSON into a chat pane is a chatbot with extra steps; the
 point of WebMCP is that the site itself is the interface.
 
+**A tool that spends money shows what it bought.** The previous decision held
+everywhere except where it mattered most: `evaluate_job_fit` asked permission,
+took a credit, and left the page exactly as it was, with the score visible only
+inside the agent's chat pane. The board bridge could not fix it, because the
+board only exists while `/jobs` is mounted and an evaluation renders elsewhere.
+So navigation is a second bridge, connected by the provider, which sits above
+every route and therefore outlives the navigation it performs. Two consequences
+worth copying: the approval dialog says the page will move, because consent to
+spend a credit is not consent to be navigated; and the result carries
+`shownOnScreen`, so an agent that has just moved the page summarises what is
+there instead of telling the user where to find it.
+
 ## What is in here
 
 ```
 src/webmcp/
   types.ts            ModelContext resolution, result envelope, same-origin fetch
   register.ts         wraps every tool with logging and error shaping, registers them
-  store.ts            activity log, approval gate, jobs-board bridge
+  store.ts            activity log, approval gate, jobs-board and navigation bridges
   tools/read.ts       the read-only tools
   tools/write.ts      state changes and consequential actions
   matching/           the deterministic resume-to-job matcher (pure functions)
@@ -162,7 +174,7 @@ import WebMcpProvider from '@/webmcp/ui/WebMcpProvider'
 </>
 ```
 
-The layer expects three things from the host application:
+The layer expects four things from the host application:
 
 1. **The API routes the tools call.** They are JobJam's, listed at the top of
    each handler in `tools/`. Point them at your own equivalents to reuse the
@@ -170,8 +182,12 @@ The layer expects three things from the host application:
 2. **A cookie session on the same origin.** `toolFetch` sends
    `credentials: 'same-origin'` and nothing else. Never add an `Authorization`
    header to it; that is the whole security model.
-3. **Three UI primitives**: `Button` and `Dialog` from
-   [shadcn/ui](https://ui.shadcn.com), and a `cn` class-merge helper.
+3. **A router.** The provider connects `next/navigation`'s `router.push` so a
+   finished evaluation can show itself. Swap in your own router and the rest
+   is unchanged.
+4. **Three UI primitives**: `Button` and `Dialog` from
+   [shadcn/ui](https://ui.shadcn.com), and a `cn` class-merge helper. The
+   activity panel also uses `lucide-react` icons.
 
 ## Tests
 
@@ -179,10 +195,14 @@ The layer expects three things from the host application:
 npm install && npm test
 ```
 
-The tests cover the two pieces of non-obvious logic: the best-effort salary
-parser (job postings state salary as unstructured text, so its edge cases are
-the whole story) and the approval gate, including the case where a second
-consequential request arrives while a dialog is already open.
+Three suites. `register.test.ts` asserts the tool contract against a fake
+`ModelContext`: every schema well-formed, no `required` naming a property that
+does not exist, and registration idempotent across a remount. `tool-fetch.test.ts`
+covers the login-redirect regression below, the bug a mocked browser cannot
+produce. `webmcp.test.ts` covers the approval gate — including a second
+consequential request arriving while a dialog is already open — the navigation
+a paid tool performs, and the best-effort salary parser, whose edge cases are
+the whole story because postings state pay as unstructured text.
 
 ## Verified against Chrome 152
 
@@ -229,3 +249,7 @@ the class of bug that only a real browser finds.
 WebMCP is a W3C Web Machine Learning Community Group draft and is still moving.
 Tool-call timeouts are not specified; `prepare_application` can run for two
 minutes, which is the part of this most likely to need revisiting.
+
+One known gap: once a paid tool has navigated to its result, the jobs board is
+unmounted, so a subsequent `search_jobs` returns correct data without moving
+any UI. The tool is still right, the page just no longer follows along.

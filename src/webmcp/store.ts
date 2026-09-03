@@ -167,3 +167,32 @@ export function connectBoard(handlers: BoardHandlers): () => void {
 export function getBoard(): BoardHandlers | null {
   return boardHandlers
 }
+
+// ─── Navigation bridge ───────────────────────────────────────────────────────
+
+/**
+ * Lets a tool show its own result.
+ *
+ * The board bridge above only exists while /jobs is mounted, and evaluation
+ * results do not live on /jobs: they live at /applications/[id], which is
+ * where the board's own "View result" button points. So an agent that spent
+ * a credit used to leave the page looking exactly as it did before, with the
+ * score visible only inside the chat pane. That is the failure this fixes.
+ *
+ * Connected once by WebMcpProvider, which sits above every app route, so it
+ * survives the navigation it performs.
+ */
+type Navigate = (path: string) => void
+
+let navigate: Navigate | null = null
+
+export function connectNavigation(fn: Navigate): () => void {
+  navigate = fn
+  return () => {
+    if (navigate === fn) navigate = null
+  }
+}
+
+export function getNavigation(): Navigate | null {
+  return navigate
+}

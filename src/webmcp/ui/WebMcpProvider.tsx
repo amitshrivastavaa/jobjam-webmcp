@@ -1,7 +1,9 @@
 'use client'
 
 import React, { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { registerJobJamTools } from '@/webmcp/register'
+import { connectNavigation } from '@/webmcp/store'
 import { AgentActivityPanel } from '@/webmcp/ui/AgentActivityPanel'
 import { ApprovalDialog } from '@/webmcp/ui/ApprovalDialog'
 
@@ -19,10 +21,17 @@ import { ApprovalDialog } from '@/webmcp/ui/ApprovalDialog'
  * of which render null until something happens) and registers nothing.
  */
 export function WebMcpProvider() {
+  const router = useRouter()
+
   useEffect(() => {
     const cleanup = registerJobJamTools()
     return () => cleanup?.()
   }, [])
+
+  // Navigation is connected here rather than in a page: a tool that finishes
+  // an evaluation has to leave whatever page it was called from, so the thing
+  // performing the move must outlive the move. This provider does.
+  useEffect(() => connectNavigation(path => router.push(path)), [router])
 
   return (
     <>

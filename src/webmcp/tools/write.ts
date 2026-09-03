@@ -15,7 +15,7 @@
 // JobJam deliberately exposes no tool that submits an application to an
 // employer. The product does not do it, so neither does the tool surface.
 
-import { getBoard, requestApproval } from '@/webmcp/store'
+import { getBoard, getNavigation, requestApproval } from '@/webmcp/store'
 import { resolveActiveProfile } from '@/webmcp/tools/read'
 import {
   fail,
@@ -43,6 +43,25 @@ async function jobLabel(jobId: string): Promise<string> {
   const { body } = await toolFetch(`/api/jobs-feed/${jobId}`)
   const job = body?.job
   return job ? `${job.title} at ${job.company}` : `job ${jobId}`
+}
+
+/**
+ * Where an evaluation result actually renders.
+ *
+ * Not the tracker. /applications/[id] is a filing record — status, dates,
+ * empty document slots — and it does not show the score at all. The
+ * conversation view is what the credit bought: the ATS ring, matched and
+ * missing skills, the recommendations, and after prepare_application the
+ * rewritten resume and the cover letter. The tracker is only a fallback for
+ * the case where an evaluation was never linked to a conversation.
+ */
+function resultUrl(
+  conversationId?: string | null,
+  applicationId?: string | null
+): string | null {
+  if (conversationId) return `/apply/ai-assistant/c/${conversationId}`
+  if (applicationId) return `/applications/${applicationId}`
+  return null
 }
 
 // ─── save_job / unsave_job ───────────────────────────────────────────────────
@@ -401,6 +420,7 @@ const evaluateJobFit: ToolDescriptor = {
         'Spends 1 evaluation credit',
         'Creates a draft application in your tracker',
         'Sends your anonymised resume and the job description to the AI model',
+        'Opens the result in this page when it finishes',
       ],
       destructive: true,
     })
@@ -410,6 +430,12 @@ const evaluateJobFit: ToolDescriptor = {
     if ('error' in result) return result.error
 
     const d = result.data
+    // Show the result. The user approved a credit being spent; leaving them
+    // on the job board with the score visible only inside the agent's chat
+    // pane makes the page a bystander to its own work.
+    const shown = resultUrl(d.conversationId, d.applicationId)
+    if (shown) getNavigation()?.(shown)
+
     return {
       ok: true,
       atsScore: d.atsScore,
@@ -419,6 +445,8 @@ const evaluateJobFit: ToolDescriptor = {
       assessment: d.evaluation?.overallAssessment ?? null,
       applicationId: d.applicationId,
       conversationId: d.conversationId,
+      reviewUrl: shown,
+      shownOnScreen: Boolean(shown),
       // The evaluation produces exactly one score, and the same value is
       // written to the tracker row and drawn in the Profile Fit ring. Said
       // out loud because an agent that also reads the page has been seen
@@ -430,7 +458,9 @@ const evaluateJobFit: ToolDescriptor = {
         'both show this same number. There is no second or more detailed ' +
         'ATS score to reconcile it against. The 0-10 figure from ' +
         'rank_jobs_for_me is a free shortlisting heuristic and is not ' +
-        'comparable.',
+        'comparable. When shownOnScreen is true the page is already ' +
+        'displaying this result, so summarise it rather than telling the ' +
+        'user where to find it.',
     }
   },
 }
@@ -483,6 +513,7 @@ const prepareApplication: ToolDescriptor = {
         'Spends 3 credits: 1 evaluation, 1 optimization, 1 cover letter',
         'Creates an application with a tailored resume and cover letter',
         'Takes up to 2 minutes',
+        'Opens the result in this page when it finishes',
         'Does not submit anything to the employer',
       ],
       destructive: true,
@@ -541,18 +572,27 @@ const prepareApplication: ToolDescriptor = {
     })
     steps.coverLetter = letter.status === 200 ? 'done' : 'failed'
 
+    // Two minutes and three credits have gone by. Land the user on what they
+    // paid for, even if a later step failed: the evaluation is there either
+    // way, and a partial result is still worth reading.
+    const shown = resultUrl(conversationId, applicationId)
+    if (shown) getNavigation()?.(shown)
+
     return {
       ok: true,
       atsScore,
       atsScoreAfterOptimization,
       applicationId,
       steps,
-      reviewUrl: applicationId ? `/applications/${applicationId}` : null,
+      reviewUrl: shown,
+      shownOnScreen: Boolean(shown),
       note:
         'Nothing was sent to the employer. The user should review the ' +
         'application before applying. atsScore is the original resume ' +
         'against this job; atsScoreAfterOptimization is the rewritten one. ' +
-        'Report them as a before and after, not as conflicting scores.',
+        'Report them as a before and after, not as conflicting scores. When ' +
+        'shownOnScreen is true the page is already displaying this ' +
+        'application, so summarise it rather than linking to it.',
     }
   },
 }
